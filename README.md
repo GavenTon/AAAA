@@ -36,3 +36,6 @@ python src/train.py --model_name {model_name} --scene {scene_name} --gpu {gpu_id
 ```
 - scene_name = eth/hotel/univ/zara1/zara2/sdd
 - Note: The real parameters are set in the config file, not in args.
+
+## Acknowledgement
+- The basic code framework is based on [FlowChain](https://github.com/meaten/FlowChain-ICCV2023).
