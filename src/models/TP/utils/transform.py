@@ -1,10 +1,10 @@
-import torch
-import numpy as np
 import math
-import random
 import numbers
 import random
 from itertools import repeat
+
+import numpy as np
+import torch
 
 
 class Center(object):

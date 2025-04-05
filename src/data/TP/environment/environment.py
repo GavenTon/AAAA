@@ -1,6 +1,8 @@
-import orjson
-import numpy as np
 from itertools import product
+
+import numpy as np
+import orjson
+
 from .node_type import NodeTypeEnum
 
 

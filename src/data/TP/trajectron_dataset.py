@@ -1,7 +1,7 @@
-from torch.utils import data
 import numpy as np
-from data.TP.preprocessing import get_node_timestep_data
+from torch.utils import data
 
+from data.TP.preprocessing import get_node_timestep_data
 
 hypers = {
     "state_p": {"PEDESTRIAN": {"position": ["x", "y"]}},
@@ -199,7 +199,7 @@ class NodeTypeDataset(data.Dataset):
         if self.augment:
             scene = scene.augment()  # randomly choose a angle, on-the-fly augmenting
             node = scene.get_node_by_id(node.id)
-        
+
         return get_node_timestep_data(
             self.env,
             scene,

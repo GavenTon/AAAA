@@ -1,8 +1,8 @@
+from typing import Optional, Tuple
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Tuple, Optional
-
 
 pi = torch.tensor(3.14159265358979323846)
 

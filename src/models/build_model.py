@@ -1,20 +1,22 @@
-from yacs.config import CfgNode
-from typing import Dict
-import torch
-import torch.nn as nn
 from copy import deepcopy
 from pathlib import Path
+from typing import Dict
+
+import torch
+import torch.nn as nn
+from yacs.config import CfgNode
+
 from models.TP.TP_models import Build_TP_model
 
 
-def Build_Model(cfg: CfgNode, args) -> nn.Module:
+def Build_Model(cfg: CfgNode) -> nn.Module:
     if cfg.MODEL.TYPE == "GT":
         return GT(cfg)
     elif cfg.MODEL.TYPE == "COPY_LAST":
         return COPY_LAST(cfg)
 
     if cfg.DATA.TASK == "TP":
-        return Build_TP_model(cfg, args)
+        return Build_TP_model(cfg)
     else:
         raise (ValueError)
 

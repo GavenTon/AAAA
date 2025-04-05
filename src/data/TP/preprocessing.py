@@ -1,9 +1,10 @@
-import torch
-import numpy as np
 import collections.abc
-from torch.utils.data._utils.collate import default_collate
-import dill
 from copy import deepcopy
+
+import dill
+import numpy as np
+import torch
+from torch.utils.data._utils.collate import default_collate
 
 container_abcs = collections.abc
 
@@ -150,7 +151,7 @@ def get_relative_robot_traj(env, state, node_traj, robot_traj, node_type, robot_
 #         y_st = env.standardize(y, pred_state[node.type], node.type, mean=rel_state[0:2], std=std[0:2])
 #     else:
 #         y_st = env.standardize(y, pred_state[node.type], node.type)
-    
+
 #     x_t = torch.tensor(x, dtype=torch.float)
 #     y_t = torch.tensor(y, dtype=torch.float)
 #     x_st_t = torch.tensor(x_st, dtype=torch.float)
@@ -253,7 +254,7 @@ def get_relative_robot_traj(env, state, node_traj, robot_traj, node_type, robot_
 
 #     return (first_history_index, x_t, y_t, x_st_t, y_st_t, neighbors_data_st, neighbors_gt_st,
 #             neighbors_edge_value, robot_traj_st_t, map_tuple, scene.dt, (scene.name, t, '/'.join([node.type.name, node.id])))
-    
+
 
 def get_node_timestep_data(
     env,
@@ -444,22 +445,58 @@ def get_node_timestep_data(
 
         current_vel = x_t[-1, 2:4]
         rotate_angle = -torch.arctan2(current_vel[1], current_vel[0])
-        rotate_matrix = torch.tensor([torch.cos(rotate_angle), -torch.sin(rotate_angle),
-                                        torch.sin(rotate_angle), torch.cos(rotate_angle)]).reshape(2,2).unsqueeze(0) # (1,2,2)
-        
-        x_t_rotate[:,0:2] = torch.bmm(rotate_matrix.repeat(8,1,1), (x_t[:,0:2] - x_t[-1,0:2]).unsqueeze(-1)).squeeze(-1) + x_t[-1,0:2]
-        x_t_rotate[:,2:4] = torch.bmm(rotate_matrix.repeat(8,1,1), x_t[:,2:4].unsqueeze(-1)).squeeze(-1)
-        x_t_rotate[:,4:6] = torch.bmm(rotate_matrix.repeat(8,1,1), x_t[:,4:6].unsqueeze(-1)).squeeze(-1)
-        y_t_rotate = torch.bmm(rotate_matrix.repeat(12,1,1), y_t.unsqueeze(-1)).squeeze(-1)
+        rotate_matrix = (
+            torch.tensor(
+                [
+                    torch.cos(rotate_angle),
+                    -torch.sin(rotate_angle),
+                    torch.sin(rotate_angle),
+                    torch.cos(rotate_angle),
+                ]
+            )
+            .reshape(2, 2)
+            .unsqueeze(0)
+        )  # (1,2,2)
 
-        x_st_t_rotate[:,0:2] = torch.bmm(rotate_matrix.repeat(8,1,1), (x_st_t[:,0:2] - x_st_t[-1,0:2]).unsqueeze(-1)).squeeze(-1) + x_st_t[-1,0:2]
-        x_st_t_rotate[:,2:4] = torch.bmm(rotate_matrix.repeat(8,1,1), x_st_t[:,2:4].unsqueeze(-1)).squeeze(-1)
-        x_st_t_rotate[:,4:6] = torch.bmm(rotate_matrix.repeat(8,1,1), x_st_t[:,4:6].unsqueeze(-1)).squeeze(-1)
-        y_st_t_rotate = torch.bmm(rotate_matrix.repeat(12,1,1), y_st_t.unsqueeze(-1)).squeeze(-1)
+        x_t_rotate[:, 0:2] = (
+            torch.bmm(
+                rotate_matrix.repeat(8, 1, 1),
+                (x_t[:, 0:2] - x_t[-1, 0:2]).unsqueeze(-1),
+            ).squeeze(-1)
+            + x_t[-1, 0:2]
+        )
+        x_t_rotate[:, 2:4] = torch.bmm(
+            rotate_matrix.repeat(8, 1, 1), x_t[:, 2:4].unsqueeze(-1)
+        ).squeeze(-1)
+        x_t_rotate[:, 4:6] = torch.bmm(
+            rotate_matrix.repeat(8, 1, 1), x_t[:, 4:6].unsqueeze(-1)
+        ).squeeze(-1)
+        y_t_rotate = torch.bmm(
+            rotate_matrix.repeat(12, 1, 1), y_t.unsqueeze(-1)
+        ).squeeze(-1)
+
+        x_st_t_rotate[:, 0:2] = (
+            torch.bmm(
+                rotate_matrix.repeat(8, 1, 1),
+                (x_st_t[:, 0:2] - x_st_t[-1, 0:2]).unsqueeze(-1),
+            ).squeeze(-1)
+            + x_st_t[-1, 0:2]
+        )
+        x_st_t_rotate[:, 2:4] = torch.bmm(
+            rotate_matrix.repeat(8, 1, 1), x_st_t[:, 2:4].unsqueeze(-1)
+        ).squeeze(-1)
+        x_st_t_rotate[:, 4:6] = torch.bmm(
+            rotate_matrix.repeat(8, 1, 1), x_st_t[:, 4:6].unsqueeze(-1)
+        ).squeeze(-1)
+        y_st_t_rotate = torch.bmm(
+            rotate_matrix.repeat(12, 1, 1), y_st_t.unsqueeze(-1)
+        ).squeeze(-1)
 
         if neighbors_gt_st[edge_type] is not None:
             for i, nb_fut in enumerate(neighbors_gt_st[edge_type]):
-                neighbors_gt_st_rotate[edge_type][i] = torch.bmm(rotate_matrix.repeat(12,1,1), nb_fut.unsqueeze(-1)).squeeze(-1)
+                neighbors_gt_st_rotate[edge_type][i] = torch.bmm(
+                    rotate_matrix.repeat(12, 1, 1), nb_fut.unsqueeze(-1)
+                ).squeeze(-1)
 
         x_t = x_t_rotate
         y_t = y_t_rotate
@@ -482,8 +519,21 @@ def get_node_timestep_data(
         (scene.name, t, "/".join([node.type.name, node.id])),
     )
 
-def get_timesteps_data(env, scene, t, node_type, state, pred_state,
-                       edge_types, min_ht, max_ht, min_ft, max_ft, hyperparams):
+
+def get_timesteps_data(
+    env,
+    scene,
+    t,
+    node_type,
+    state,
+    pred_state,
+    edge_types,
+    min_ht,
+    max_ht,
+    min_ft,
+    max_ft,
+    hyperparams,
+):
     """
     Puts together the inputs for ALL nodes in a given scene and timestep in it.
 
@@ -499,26 +549,42 @@ def get_timesteps_data(env, scene, t, node_type, state, pred_state,
     :param hyperparams: Model hyperparameters
     :return:
     """
-    nodes_per_ts = scene.present_nodes(t,
-                                       type=node_type,
-                                       min_history_timesteps=min_ht,
-                                       min_future_timesteps=max_ft,
-                                       return_robot=not hyperparams['incl_robot_node'])
+    nodes_per_ts = scene.present_nodes(
+        t,
+        type=node_type,
+        min_history_timesteps=min_ht,
+        min_future_timesteps=max_ft,
+        return_robot=not hyperparams["incl_robot_node"],
+    )
     batch = list()
     nodes = list()
     out_timesteps = list()
     for timestep in nodes_per_ts.keys():
-            scene_graph = scene.get_scene_graph(timestep,
-                                                env.attention_radius,
-                                                hyperparams['edge_addition_filter'],
-                                                hyperparams['edge_removal_filter'])
-            present_nodes = nodes_per_ts[timestep]
-            for node in present_nodes:
-                nodes.append(node)
-                out_timesteps.append(timestep)
-                batch.append(get_node_timestep_data(env, scene, timestep, node, state, pred_state,
-                                                    edge_types, max_ht, max_ft, hyperparams,
-                                                    scene_graph=scene_graph))
+        scene_graph = scene.get_scene_graph(
+            timestep,
+            env.attention_radius,
+            hyperparams["edge_addition_filter"],
+            hyperparams["edge_removal_filter"],
+        )
+        present_nodes = nodes_per_ts[timestep]
+        for node in present_nodes:
+            nodes.append(node)
+            out_timesteps.append(timestep)
+            batch.append(
+                get_node_timestep_data(
+                    env,
+                    scene,
+                    timestep,
+                    node,
+                    state,
+                    pred_state,
+                    edge_types,
+                    max_ht,
+                    max_ft,
+                    hyperparams,
+                    scene_graph=scene_graph,
+                )
+            )
     if len(out_timesteps) == 0:
         return None
     return collate(batch), nodes, out_timesteps

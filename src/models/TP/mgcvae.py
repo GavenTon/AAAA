@@ -1,13 +1,16 @@
+import pdb
 import warnings
+
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+
+from data.TP.environment.scene_graph import DirectedEdge
+
+from . import dynamics as dynamic_module
 from .components import *
 from .model_utils import *
-from . import dynamics as dynamic_module
-from data.TP.environment.scene_graph import DirectedEdge
 from .utils import *
-import pdb
 
 
 class MultimodalGenerativeCVAE(nn.Module):

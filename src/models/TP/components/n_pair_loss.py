@@ -1,8 +1,9 @@
+import pdb
+
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
 import torch.nn.functional as F
-import pdb
 
 # Constants
 N_PAIR = "n-pair"

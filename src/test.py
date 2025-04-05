@@ -1,19 +1,16 @@
-import torch
-import numpy as np
-
 import argparse
+import random
+from copy import deepcopy
+from pathlib import Path
+
 import numpy as np
 import torch
-from copy import deepcopy
 from tqdm import tqdm, trange
-from pathlib import Path
-import random
 
-
-from utils import load_config_test, set_seeds
 from data.unified_loader import unified_loader
-from models.build_model import Build_Model
 from metrics.build_metrics import Build_Metrics
+from models.build_model import Build_Model
+from utils.common import load_config, set_seeds
 
 
 def parse_args() -> argparse.Namespace:
@@ -62,8 +59,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--cluster_name", type=str, default="", help="clustering model name"
     )
-    parser.add_argument(
-        "--manual_weights", nargs='+', default=None, type=int)
+    parser.add_argument("--manual_weights", nargs="+", default=None, type=int)
 
     parser.add_argument("--var_init", type=float, default=0.7, help="init var")
     parser.add_argument("--learnVAR", action="store_true")
@@ -178,29 +174,25 @@ def evaluate_metrics(args, gt_list, pred_list):
     return minade.mean(), minfde.mean()
 
 
-def test():
-    args = parse_args()
-    scene = args.scene
-    args.load_model = f"./checkpoint/{scene}.ckpt"
-    args.config_file = f"./config/{scene}.yml"
-    cfg = load_config_test(args)
-
-    args.clusterGMM = cfg.MGF.ENABLE
-    args.cluster_n = cfg.MGF.CLUSTER_N
-    args.var_init = cfg.MGF.VAR_INIT
-    args.learn_var = cfg.MGF.VAR_LEARNABLE
-
-    model = Build_Model(cfg, args)
+def test(args, cfg):
+    model = Build_Model(cfg)
     model.load(Path(args.load_model))
     data_loader = unified_loader(cfg, rand=False, split="test")
     metrics = Build_Metrics(cfg)
 
     for i_trial in range(3):
-        set_seeds(random.randint(0,1000))
+        set_seeds(random.randint(0, 1000))
         _, gt_list, pred_list = run_inference(cfg, model, metrics, data_loader)
         minade, minfde = evaluate_metrics(args, gt_list, pred_list)
         print(f"{args.scene} test {i_trial}:\n {minade}/{minfde}")
 
 
 if __name__ == "__main__":
-    test()
+    args = parse_args()
+    scene = args.scene
+    args.load_model = f"./checkpoint/{scene}.ckpt"
+    args.config_file = f"./config/{scene}.yml"
+    cfg = load_config(args)
+    cfg.freeze()
+
+    test(args, cfg)

@@ -2,12 +2,13 @@ import sys
 
 sys.path.append("./src")
 import os
-import numpy as np
-import pandas as pd
-import dill
 import pickle
 
-from data.TP.environment import Environment, Scene, Node, derivative_of
+import dill
+import numpy as np
+import pandas as pd
+
+from data.TP.environment import Environment, Node, Scene, derivative_of
 
 np.random.seed(123)
 
@@ -108,8 +109,8 @@ data_columns = pd.MultiIndex.from_product(
 
 
 # Process ETH-UCY
-for desired_source in ['eth', 'hotel', 'univ', 'zara1', 'zara2']:
-    for data_class in ['train', 'val', 'test']:
+for desired_source in ["eth", "hotel", "univ", "zara1", "zara2"]:
+    for data_class in ["train", "val", "test"]:
         env = Environment(
             node_type_list=["PEDESTRIAN"], standardization=standardization
         )
@@ -229,14 +230,16 @@ for desired_source in ['eth', 'hotel', 'univ', 'zara1', 'zara2']:
 
 
 # Process Stanford Drone. Data obtained from Y-Net github repo
-data_columns = pd.MultiIndex.from_product([['position', 'velocity', 'acceleration'], ['x', 'y']])
+data_columns = pd.MultiIndex.from_product(
+    [["position", "velocity", "acceleration"], ["x", "y"]]
+)
 
 for data_class in ["train", "test"]:
     data_path = os.path.join(raw_path, "stanford", f"{data_class}_trajnet.pkl")
     print(f"Processing SDD {data_class}")
     data_out_path = os.path.join(data_folder_name, f"sdd_{data_class}.pkl")
     df = pickle.load(open(data_path, "rb"))
-    env = Environment(node_type_list=['PEDESTRIAN'], standardization=standardization)
+    env = Environment(node_type_list=["PEDESTRIAN"], standardization=standardization)
     attention_radius = dict()
     attention_radius[(env.NodeType.PEDESTRIAN, env.NodeType.PEDESTRIAN)] = 3.0
     env.attention_radius = attention_radius
@@ -245,47 +248,52 @@ for data_class in ["train", "test"]:
 
     group = df.groupby("sceneId")
     for scene, data in group:
-        data['frame'] = pd.to_numeric(data['frame'], downcast='integer')
-        data['trackId'] = pd.to_numeric(data['trackId'], downcast='integer')
+        data["frame"] = pd.to_numeric(data["frame"], downcast="integer")
+        data["trackId"] = pd.to_numeric(data["trackId"], downcast="integer")
 
-        data['frame'] = data['frame'] // 12
+        data["frame"] = data["frame"] // 12
 
-        #data['frame'] -= data['frame'].min()
+        # data['frame'] -= data['frame'].min()
 
-        data['node_type'] = 'PEDESTRIAN'
-        data['node_id'] = data['trackId'].astype(str)
+        data["node_type"] = "PEDESTRIAN"
+        data["node_id"] = data["trackId"].astype(str)
 
         # apply data scale as same as PECnet
-        data['x'] = data['x']/50
-        data['y'] = data['y']/50
+        data["x"] = data["x"] / 50
+        data["y"] = data["y"] / 50
 
         # Mean Position
-        #data['x'] = data['x'] - data['x'].mean()
-        #data['y'] = data['y'] - data['y'].mean()
+        # data['x'] = data['x'] - data['x'].mean()
+        # data['y'] = data['y'] - data['y'].mean()
 
-        max_timesteps = data['frame'].max()
+        max_timesteps = data["frame"].max()
 
         if len(data) > 0:
 
-            scene = Scene(timesteps=max_timesteps+1, dt=dt, name=scene, aug_func=augment if data_class == 'train' else None)
-            n=0
-            for node_id in pd.unique(data['node_id']):
+            scene = Scene(
+                timesteps=max_timesteps + 1,
+                dt=dt,
+                name=scene,
+                aug_func=augment if data_class == "train" else None,
+            )
+            n = 0
+            for node_id in pd.unique(data["node_id"]):
 
-                node_df = data[data['node_id'] == node_id]
-
+                node_df = data[data["node_id"] == node_id]
 
                 if len(node_df) > 1:
-                    assert np.all(np.diff(node_df['frame']) == 1)
-                    if not np.all(np.diff(node_df['frame']) == 1):
-                        import pdb;pdb.set_trace()
+                    assert np.all(np.diff(node_df["frame"]) == 1)
+                    if not np.all(np.diff(node_df["frame"]) == 1):
+                        import pdb
 
+                        pdb.set_trace()
 
-                    node_values = node_df[['x', 'y']].values
+                    node_values = node_df[["x", "y"]].values
 
                     if node_values.shape[0] < 2:
                         continue
 
-                    new_first_idx = node_df['frame'].iloc[0]
+                    new_first_idx = node_df["frame"].iloc[0]
 
                     x = node_values[:, 0]
                     y = node_values[:, 1]
@@ -295,26 +303,32 @@ for data_class in ["train", "test"]:
                     ay = derivative_of(vy, scene.dt)
 
                     # filter data
-                    thres=2
-                    if data_class == 'train':
-                        if (np.abs(vx)>=thres).any() or (np.abs(vy)>=thres).any():
+                    thres = 2
+                    if data_class == "train":
+                        if (np.abs(vx) >= thres).any() or (np.abs(vy) >= thres).any():
                             continue
 
-                    data_dict = {('position', 'x'): x,
-                                 ('position', 'y'): y,
-                                 ('velocity', 'x'): vx,
-                                 ('velocity', 'y'): vy,
-                                 ('acceleration', 'x'): ax,
-                                 ('acceleration', 'y'): ay}
+                    data_dict = {
+                        ("position", "x"): x,
+                        ("position", "y"): y,
+                        ("velocity", "x"): vx,
+                        ("velocity", "y"): vy,
+                        ("acceleration", "x"): ax,
+                        ("acceleration", "y"): ay,
+                    }
 
                     node_data = pd.DataFrame(data_dict, columns=data_columns)
-                    node = Node(node_type=env.NodeType.PEDESTRIAN, node_id=node_id, data=node_data)
+                    node = Node(
+                        node_type=env.NodeType.PEDESTRIAN,
+                        node_id=node_id,
+                        data=node_data,
+                    )
                     node.first_timestep = new_first_idx
 
                     scene.nodes.append(node)
-            if data_class == 'train':
+            if data_class == "train":
                 scene.augmented = list()
-                angles = np.arange(0, 360, 15) if data_class == 'train' else [0]
+                angles = np.arange(0, 360, 15) if data_class == "train" else [0]
                 for angle in angles:
                     scene.augmented.append(augment_scene(scene, angle))
 
@@ -323,6 +337,6 @@ for data_class in ["train", "test"]:
     env.scenes = scenes
 
     if len(scenes) > 0:
-        with open(data_out_path, 'wb') as f:
-            #pdb.set_trace()
+        with open(data_out_path, "wb") as f:
+            # pdb.set_trace()
             dill.dump(env, f, protocol=dill.HIGHEST_PROTOCOL)

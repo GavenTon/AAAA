@@ -1,16 +1,19 @@
 import json
 from pathlib import Path
+
+import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
-import numpy as np
-from data.TP.preprocessing import restore
-from utils import optimizer_to_cuda
+
 from data.TP.environment.scene_graph import DirectedEdge
+from data.TP.preprocessing import restore
 from models.TP.components import *
 from models.TP.model_utils import *
+from utils import optimizer_to_cuda
+
 from . import dynamics as dynamic_module
-import torch.nn.functional as F
 
 
 class Trajectron(torch.nn.Module):

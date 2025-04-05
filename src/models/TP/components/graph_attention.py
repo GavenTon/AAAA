@@ -1,10 +1,11 @@
-import warnings
 import math
 import numbers
+import warnings
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.nn import init, Parameter
+from torch.nn import Parameter, init
 
 
 class GraphMultiTypeAttention(nn.Module):

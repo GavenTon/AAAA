@@ -1,6 +1,6 @@
+import numpy as np
 import torch
 import torch.distributions as td
-import numpy as np
 
 
 def to_one_hot(labels, n_labels):

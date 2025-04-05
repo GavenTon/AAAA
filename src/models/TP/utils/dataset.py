@@ -1,12 +1,12 @@
 import os
 import random
 from copy import copy
+
+import h5py
+import numpy as np
 import torch
 from torch.utils.data import Dataset
-import numpy as np
-import h5py
 from tqdm.auto import tqdm
-
 
 synsetid_to_cate = {
     "02691156": "airplane",

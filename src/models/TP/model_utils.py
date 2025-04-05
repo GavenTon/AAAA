@@ -1,9 +1,10 @@
+import functools
+import math
+from enum import Enum
+
+import numpy as np
 import torch
 import torch.nn.utils.rnn as rnn
-from enum import Enum
-import functools
-import numpy as np
-import math
 
 
 class ModeKeys(Enum):

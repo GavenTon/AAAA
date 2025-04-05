@@ -1,13 +1,16 @@
-import os
 import argparse
-from yacs.config import CfgNode
-import torch
-import time
+import os
 import random
+import time
+
 import numpy as np
+import torch
+from yacs.config import CfgNode
+
+import wandb
 
 
-def load_config_test(args: argparse.Namespace) -> CfgNode:
+def load_config(args: argparse.Namespace) -> CfgNode:
     from default_params import _C as cfg
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
@@ -28,7 +31,7 @@ def load_config_test(args: argparse.Namespace) -> CfgNode:
 
     if cfg_.LOAD_TUNED and args.mode != "tune":
         cfg_ = load_tuned(args, cfg_)
-    cfg_.freeze()
+    # cfg_.freeze()
 
     return cfg_
 
@@ -60,6 +63,7 @@ def optimizer_to_cuda(optimizer):
             if isinstance(v, torch.Tensor):
                 state[k] = v.cuda()
 
+
 def set_seeds(seed, deterministic=False):
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -69,3 +73,27 @@ def set_seeds(seed, deterministic=False):
     if deterministic:
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
+
+
+def set_wandb(args):
+    scene_name = args.scene.upper()
+    project_name = f"MGF-{scene_name}"
+    attach_name = args.model_name
+    args.model_name = (
+        scene_name
+        + "-"
+        + (
+            f"clusterGMM{str(args.cluster_n)}_{str(args.var_init)}"
+            if args.clusterGMM
+            else "flowchain"
+        )
+        + ("*_" if args.learnVAR else "_")
+        + f"mse{str(args.w_mse)}"
+        + (f"{attach_name}" if attach_name is not None else "")
+    )
+
+    wandb.init(
+        project=project_name,
+        name=args.model_name,
+        config=args,
+    )

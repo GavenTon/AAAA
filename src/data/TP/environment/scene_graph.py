@@ -1,8 +1,10 @@
-import numpy as np
-from scipy.spatial.distance import pdist, squareform
-import scipy.signal as ss
-from collections import defaultdict
 import warnings
+from collections import defaultdict
+
+import numpy as np
+import scipy.signal as ss
+from scipy.spatial.distance import pdist, squareform
+
 from .node import Node
 
 
@@ -376,8 +378,9 @@ class SceneGraph(object):
 
 
 if __name__ == "__main__":
-    from data import NodeTypeEnum
     import time
+
+    from data import NodeTypeEnum
 
     # # # # # # # # # # # # # # # # #
     # Testing edge mask calculation #

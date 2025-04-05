@@ -29,3 +29,10 @@ python src/test.py --scene {scene_name}
 | ---- | ---- | ----- | ---- | ----- | ----- | ----- |
 | ADE  | 0.40 | 0.13  | 0.21 | 0.17  | 0.14  | 7.74  |
 | FDE  | 0.59 | 0.20  | 0.39 | 0.29  | 0.24  | 12.17 |
+
+## Training
+```bash
+python src/train.py --model_name {model_name} --scene {scene_name} --gpu {gpu_id}
+```
+- scene_name = eth/hotel/univ/zara1/zara2/sdd
+- Note: The real parameters are set in the config file, not in args.

@@ -1,12 +1,11 @@
 import logging
-import os
 import math
+import os
 from copy import deepcopy
 
 import numpy as np
-from sklearn.preprocessing import scale
-
 import torch
+from sklearn.preprocessing import scale
 from torch.utils.data import Dataset
 
 logger = logging.getLogger(__name__)

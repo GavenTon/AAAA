@@ -1,10 +1,11 @@
-import os
-import torch
-import numpy as np
-import random
-import time
 import logging
 import logging.handlers
+import os
+import random
+import time
+
+import numpy as np
+import torch
 
 THOUSAND = 1000
 MILLION = 1000000

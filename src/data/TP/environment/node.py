@@ -1,8 +1,10 @@
 import random
+
 import numpy as np
 import pandas as pd
-from . import DoubleHeaderNumpyArray
 from ncls import NCLS
+
+from . import DoubleHeaderNumpyArray
 
 
 class Node(object):

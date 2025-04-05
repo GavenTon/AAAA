@@ -1,8 +1,10 @@
+import pdb
+from enum import Enum
+
+import numpy as np
 import torch
 import torch.distributions as td
-import numpy as np
-from enum import Enum
-import pdb
+
 from models.TP.model_utils import ModeKeys
 
 

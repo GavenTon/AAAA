@@ -1,3 +1,6 @@
 *.pyc*
 *DS_Store*
 .pre-commit-config.yaml
+wandb/*
+
+src/data/TP/processed_data/*

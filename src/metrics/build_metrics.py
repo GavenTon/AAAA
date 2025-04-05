@@ -1,5 +1,6 @@
-from yacs.config import CfgNode
 from typing import Callable
+
+from yacs.config import CfgNode
 
 
 def Build_Metrics(cfg: CfgNode) -> Callable:

@@ -1,15 +1,16 @@
-import torch
 from copy import deepcopy
-from yacs.config import CfgNode
-from typing import Dict
 from pathlib import Path
+from typing import Dict
+
+import torch
+from yacs.config import CfgNode
 
 
-def Build_TP_model(cfg: CfgNode, args):
+def Build_TP_model(cfg: CfgNode):
     if "fastpredNF" in cfg.MODEL.TYPE:
         from models.TP.fastpredNF import fastpredNF_TP
 
-        model = fastpredNF_TP(cfg, args).cuda()
+        model = fastpredNF_TP(cfg).cuda()
 
     else:
         raise (ValueError, f"unknown model type: {cfg.MODEL.TYPE}")

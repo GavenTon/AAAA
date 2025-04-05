@@ -1,17 +1,17 @@
-from yacs.config import CfgNode
 import copy
 import math
-from pathlib import Path
 from abc import ABC, abstractmethod
-from typing import Tuple, Dict
+from pathlib import Path
+from typing import Dict, Tuple
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import Normal
+from yacs.config import CfgNode
 
-from utils import optimizer_to_cuda
+from utils.common import optimizer_to_cuda
 
 
 class ARFlow(nn.Module):

@@ -1,8 +1,9 @@
+import copy
+import pdb
+
 import numpy as np
 import torch
 import torch.distributions as td
-import pdb
-import copy
 
 # from model.dynamics import Dynamic
 #

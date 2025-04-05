@@ -5,10 +5,11 @@
 #     Motion Indeterminacy Diffusion https://github.com/gutianpei/mid
 # TP: Social GAN https://github.com/agrimgupta92/sgan
 from pathlib import Path
+
 import dill
-from yacs.config import CfgNode
 import torch
 from torch.utils.data import DataLoader
+from yacs.config import CfgNode
 
 
 def unified_loader(

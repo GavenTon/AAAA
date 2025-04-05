@@ -1,27 +1,27 @@
-from yacs.config import CfgNode
 import math
-from pathlib import Path
-from typing import Tuple, Dict
-import numpy as np
-from copy import deepcopy
 import pickle
+from copy import deepcopy
 from operator import itemgetter
+from pathlib import Path
+from typing import Dict, Tuple
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.distributions import Normal
+from yacs.config import CfgNode
 
 from data.TP.preprocessing import restore
-from utils import optimizer_to_cuda
-
-from models.TP.TFCondARFlow import FlowSequential, LinearMaskedCoupling, BatchNorm, MADE
-from models.mgf.gmm_dist import cluster_GMM_Dist
 from metrics.build_metrics import Build_Metrics
+from models.mgf.gmm_dist import cluster_GMM_Dist
+from models.TP.TFCondARFlow import (MADE, BatchNorm, FlowSequential,
+                                    LinearMaskedCoupling)
+from utils.common import optimizer_to_cuda
 
 
 class fastpredNF_TP(nn.Module):
-    def __init__(self, cfg: CfgNode, args) -> None:
+    def __init__(self, cfg: CfgNode) -> None:
         super(fastpredNF_TP, self).__init__()
 
         self.output_path = Path(cfg.OUTPUT_DIR)
@@ -61,7 +61,7 @@ class fastpredNF_TP(nn.Module):
 
         self.model_type = cfg.MODEL.TYPE
         if cfg.MODEL.TYPE == "fastpredNF_CIF_separate_cond_clusterGMM":
-            cluster_model_path = f"src/clustering/models/{args.scene}_train_{args.cluster_method}_{str(args.cluster_n)}{args.cluster_name}.pkl"
+            cluster_model_path = f"src/clustering/models/{cfg.DATA.DATASET_NAME}_train_{cfg.MGF.CLUSTER_METHOD}_{str(cfg.MGF.CLUSTER_N)}.pkl"
             self.flow = model_dict[cfg.MODEL.TYPE](
                 input_size=self.output_size,
                 n_blocks=n_blocks,
@@ -69,12 +69,11 @@ class fastpredNF_TP(nn.Module):
                 hidden_size=hidden_size,
                 cond_label_size=conditioning_length,
                 cluster_model_path=cluster_model_path,
-                var_init=args.var_init,
-                learnVAR=args.learnVAR,
-                manual_weights=args.manual_weights,
+                var_init=cfg.MGF.VAR_INIT,
+                learnVAR=cfg.MGF.VAR_LEARNABLE,
                 flow_architecture=cfg.MODEL.FLOW.ARCHITECTURE,
                 pred_len=self.pred_len,
-                normalize_direction = cfg.DATA.NORMALIZED
+                normalize_direction=cfg.DATA.NORMALIZED,
             )
         else:
             self.flow = model_dict[cfg.MODEL.TYPE](
@@ -428,10 +427,11 @@ class Trajectron_encoder(nn.Module):
 
         self.output_size = output_size
 
-        from data.TP.trajectron_dataset import hypers
-        from .mgcvae import MultimodalGenerativeCVAE
-
         import dill
+
+        from data.TP.trajectron_dataset import hypers
+
+        from .mgcvae import MultimodalGenerativeCVAE
 
         env_path = (
             Path(cfg.DATA.PATH)
@@ -1032,7 +1032,6 @@ class fastpredNF_CIF_separate_cond_clusterGMM(fastpredNF_CIF_separate_cond):
         cluster_model_path,
         var_init,
         learnVAR,
-        manual_weights,
         normalize_direction,
         **kwargs,
     ):
@@ -1041,38 +1040,28 @@ class fastpredNF_CIF_separate_cond_clusterGMM(fastpredNF_CIF_separate_cond):
             input_size, n_blocks, hidden_size, n_hidden, cond_label_size, **kwargs
         )
 
-        # pkl_filename = "src/clustering/models/hotel_train_kmeans_7.pkl"     # TODO
         with open(cluster_model_path, "rb") as file:
             self.cluster_model = pickle.load(file)
 
         base_shape = torch.Size((self.cluster_model.n_clusters, 12, 2))
         self.vars = nn.Parameter(
             torch.ones(base_shape) * var_init, requires_grad=learnVAR
-        )  # TODO
+        )
         self.flow_gmm = cluster_GMM_Dist(
-            self.cluster_model, self.vars, manual_weights=manual_weights, normalize_direction = normalize_direction,
+            self.cluster_model,
+            self.vars,
+            normalize_direction=normalize_direction,
         )
 
     def base_dist(self, base_pos):
         self.flow_gmm.set_dist(base_pos)
         return self.flow_gmm
-        # return GMM_Dist(base_pos, torch.clamp(self.var[step], min=1e-4))
-        # return Normal(base_pos, torch.clamp(self.var[step], min=1e-4))
 
     def log_prob(self, base_pos, x, cond):
         return self.log_prob_separate(base_pos, x, cond)
 
     def log_prob_separate(self, base_pos, x, cond):
-        u, seq_ldjs = self.forward_separate(
-            x, cond
-        )  # TODO: model the distribution of u, (B,12,2)
-        # base_pos = torch.cat([base_pos[:, None], x[:, :-1]], dim=1)     # (B,12,2)
-        # ## fill nan to first occured pos
-        # for i in range(traj_v.shape[0]):
-        #     b = traj_v[i]
-        #     if torch.isnan(b).any():
-        #         nan_num = int(torch.sum(torch.isnan(b)) / 2)
-        #         b[0:(nan_num+1)] = b[nan_num+1]
+        u, seq_ldjs = self.forward_separate(x, cond)
 
         base_log_prob = torch.sum(
             self.base_dist(base_pos).log_prob(base_pos, x, u), dim=-1
@@ -1080,9 +1069,7 @@ class fastpredNF_CIF_separate_cond_clusterGMM(fastpredNF_CIF_separate_cond):
         return base_log_prob + seq_ldjs
 
     def log_prob_base(self, base_pos, x, cond):
-        u, seq_ldjs = self.forward_separate(
-            x, cond
-        )  # TODO: model the distribution of u, (B,12,2)
+        u, seq_ldjs = self.forward_separate(x, cond)
         base_log_prob = torch.sum(
             self.base_dist(base_pos).log_prob(base_pos, x, u), dim=-1
         )
