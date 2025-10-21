@@ -3,7 +3,7 @@ import pickle
 from copy import deepcopy
 from operator import itemgetter
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Tuple,Optional
 
 import numpy as np
 import torch
@@ -112,6 +112,55 @@ class fastpredNF_TP(nn.Module):
 
         ## metric
         self.metrics = Build_Metrics(cfg)
+        self.regularizer_weight = 0.0
+        self.regularizer_reference: Dict[str, torch.Tensor] = {}
+        self.active_cluster_id: Optional[int] = None
+        self.last_checkpoint_extra: Optional[Dict] = None
+
+    def set_regularizer(
+            self, reference_state: Dict[str, torch.Tensor], weight: float
+    ) -> None:
+        self.regularizer_reference = {
+            name: tensor.to(next(self.parameters()).device)
+            for name, tensor in reference_state.items()
+        }
+        self.regularizer_weight = max(0.0, float(weight))
+
+    def clear_regularizer(self) -> None:
+        self.regularizer_reference = {}
+        self.regularizer_weight = 0.0
+
+    def _apply_regularizer(self, loss: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        if self.regularizer_weight <= 0 or not self.regularizer_reference:
+            return loss, torch.zeros_like(loss)
+
+        reg_loss = torch.zeros(1, device=loss.device, dtype=loss.dtype)
+        for name, param in self.named_parameters():
+            if param.requires_grad and name in self.regularizer_reference:
+                reg_loss = reg_loss + (
+                        param - self.regularizer_reference[name]
+                ).pow(2).sum()
+
+        loss = loss + self.regularizer_weight * reg_loss
+        return loss, reg_loss
+
+    def set_active_cluster(self, cluster_id: Optional[int]) -> None:
+        self.active_cluster_id = cluster_id
+        if hasattr(self.flow, "flow_gmm"):
+            self.flow.flow_gmm.set_active_cluster(cluster_id)
+
+    def set_cluster_prior(
+            self,
+            cluster_id: Optional[int],
+            mean: Optional[torch.Tensor] = None,
+            std: Optional[torch.Tensor] = None,
+    ) -> None:
+        if hasattr(self.flow, "flow_gmm"):
+            self.flow.flow_gmm.set_active_cluster(cluster_id)
+            if mean is not None or std is not None:
+                self.flow.flow_gmm.override_cluster_stats(
+                    cluster_id, mean=mean, std=std
+                )
 
     def predict(self, data_dict: Dict, return_prob: bool = True) -> Dict:
         if return_prob:
@@ -249,8 +298,11 @@ class fastpredNF_TP(nn.Module):
         #     traj_v = torch.cat((obs,gt), dim=1)
         #     loss = -self.flow.log_prob(base_pos, gt, dist_args, traj_v)
         # else:
-        loss = -self.flow.log_prob(base_pos, gt, dist_args)
-        loss = loss.mean()
+        # loss = -self.flow.log_prob(base_pos, gt, dist_args)
+        # loss = loss.mean()
+        mle_loss = -self.flow.log_prob(base_pos, gt, dist_args)
+        mle_loss = mle_loss.mean()
+        loss, reg_loss = self._apply_regularizer(mle_loss)
 
         if loss >= 100:
             print("debug")
@@ -263,7 +315,12 @@ class fastpredNF_TP(nn.Module):
             # else:
             #     print("loss overflow")
 
-        return {"loss": loss.mean().item()}
+        #return {"loss": loss.mean().item()}
+        return {
+            "loss": loss.item(),
+            "nll": mle_loss.item(),
+            "reg_loss": reg_loss.item(),
+        }
 
     def update_mse(self, data_dict: Dict, w_mse) -> Dict:
         dist_args = self.encoder(data_dict)
@@ -290,7 +347,9 @@ class fastpredNF_TP(nn.Module):
         # mse_min_loss = ade_loss + fde_loss
         mse_min_loss = ade_loss
         # bp
-        loss = flow_loss + w_mse * mse_min_loss
+        #loss = flow_loss + w_mse * mse_min_loss
+        base_loss = flow_loss + w_mse * mse_min_loss
+        loss, reg_loss = self._apply_regularizer(base_loss)
         self.optimizer.zero_grad()
         # if flow_loss <= 1000:
         loss.backward()
@@ -299,9 +358,10 @@ class fastpredNF_TP(nn.Module):
         self.optimizer.step()
 
         return {
-            "loss": loss.mean().item(),
-            "flow_loss": flow_loss.mean().item(),
-            "mse_min_loss": w_mse * mse_min_loss.mean().item(),
+            "loss": loss.item(),
+            "flow_loss": flow_loss.item(),
+            "mse_min_loss": (w_mse * mse_min_loss).mean().item(),
+            "reg_loss": reg_loss.item(),
         }
 
     def get_base_pos(self, data_dict: Dict) -> torch.Tensor:
@@ -315,7 +375,19 @@ class fastpredNF_TP(nn.Module):
         else:
             raise ValueError
 
-    def save(self, epoch: int = 0, path: Path = None) -> None:
+    #def save(self, epoch: int = 0, path: Path = None) -> None:
+    @staticmethod
+    def _clean_state_dict(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        cleaned = {}
+        for key, value in state_dict.items():
+            new_key = key[7:] if key.startswith("module.") else key
+            cleaned[new_key] = value
+        return cleaned
+
+    def save(
+            self, epoch: int = 0, path: Path = None, extra: Optional[Dict] = None
+    ) -> None:
+
         if path is None:
             path = self.output_path / "ckpt.pt"
 
@@ -324,6 +396,8 @@ class fastpredNF_TP(nn.Module):
             "state": self.state_dict(),
             "optim_state": self.optimizer.state_dict(),
         }
+        if extra is not None:
+            ckpt["extra"] = extra
 
         torch.save(ckpt, path)
 
@@ -333,17 +407,41 @@ class fastpredNF_TP(nn.Module):
 
         return path.exists()
 
-    def load(self, path: Path = None) -> int:
+    def load(
+            self,
+            path: Path = None,
+            *,
+            strict: bool = True,
+            map_location: Optional[str] = None,
+    ) -> int:
         if path is None:
             path = self.output_path / "ckpt.pt"
 
-        ckpt = torch.load(path)
-        self.load_state_dict(ckpt["state"])
+        ckpt = torch.load(path, map_location=map_location or "cpu")
+        state = ckpt["state"] if "state" in ckpt else ckpt
+        state = self._clean_state_dict(state)
+        missing, unexpected = self.load_state_dict(state, strict=strict)
+        if missing or unexpected:
+            print(
+                f"Loaded checkpoint from {path} with "
+                f"{len(missing)} missing and {len(unexpected)} unexpected keys."
+            )
+            if missing:
+                print("Missing keys:", missing)
+            if unexpected:
+                print("Unexpected keys:", unexpected)
 
-        self.optimizer.load_state_dict(ckpt["optim_state"])
-        optimizer_to_cuda(self.optimizer)
+        if "optim_state" in ckpt:
+            try:
+                self.optimizer.load_state_dict(ckpt["optim_state"])
+                optimizer_to_cuda(self.optimizer)
+            except ValueError as err:
+                print(
+                    "Warning: failed to load optimizer state due to incompatible "
+                    f"parameter groups ({err}). Skipping optimizer restore."
+                )
 
-        return ckpt["epoch"]
+        return ckpt.get("epoch", 0)
 
 
 class TF_encoder(nn.Module):
