@@ -6,12 +6,22 @@ from pathlib import Path
 import numpy as np
 import torch
 from tqdm import tqdm, trange
+from typing import Dict, List, Optional,Tuple
+from torch.utils.data import DataLoader, Subset
 
-from data.unified_loader import unified_loader
+from data.TP.preprocessing import dict_collate
+from data.router_dataset import extract_router_features, ClusterRoutingDataset
+from data.unified_loader import (
+    load_cluster_model,
+    load_environment_dataset,
+    predict_cluster_from_dict,
+    unified_loader,
+)
 from metrics.build_metrics import Build_Metrics
 from models.build_model import Build_Model
+from models.router import ClusterRouter
 from utils.common import load_config, set_seeds
-
+from utils.finetune import cluster_model_path, format_cluster_name
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -63,6 +73,31 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--var_init", type=float, default=0.7, help="init var")
     parser.add_argument("--learnVAR", action="store_true")
+
+    parser.add_argument(
+        "--load_cluster_ckpt",
+        type=str,
+        default=None,
+        help="path to a cluster-specific checkpoint",
+    )
+    parser.add_argument(
+        "--cluster_id",
+        type=int,
+        default=None,
+        help="evaluate metrics for a single cluster",
+    )
+    parser.add_argument(
+        "--router_ckpt",
+        type=str,
+        default=None,
+        help="path to a trained cluster router checkpoint",
+    )
+    parser.add_argument(
+        "--cluster_ckpt_dir",
+        type=str,
+        default=None,
+        help="directory containing finetuned cluster checkpoints",
+    )
 
     return parser.parse_args()
 
@@ -173,11 +208,203 @@ def evaluate_metrics(args, gt_list, pred_list):
         minfde *= 50
     return minade.mean(), minfde.mean()
 
+def _evaluate_router_assignments(
+    args,
+    cfg,
+    router_model: ClusterRouter,
+    feature_set: str,
+    flatten: bool,
+    normalization_stats: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+):
+    print(
+        f"[DEBUG] Starting router assignment evaluation | feature_set={feature_set} | flatten={flatten}"
+    )
+    device = next(router_model.parameters()).device
+    if normalization_stats is not None:
+        mean, std = normalization_stats
+        normalization_stats = (mean.to(device), std.to(device))
+        print(
+            "[DEBUG] Normalization stats available | mean[:5]={:.4f}, std[:5]={:.4f}".format(
+                normalization_stats[0].flatten()[:5].mean().item(),
+                normalization_stats[1].flatten()[:5].mean().item(),
+            )
+        )
+    else:
+        print("[DEBUG] No normalization stats provided; using raw features")
+    dataset = load_environment_dataset(cfg, split="test", aug_scene=args.aug_scene)
+    print(f"[DEBUG] Loaded dataset split=test with {len(dataset)} samples")
+    cluster_model = load_cluster_model(cfg, cluster_model_path(cfg))
+    assignments = {cid: [] for cid in range(router_model.num_clusters)}
+    correct = 0
+    total = 0
+
+    with torch.no_grad():
+        for idx in range(len(dataset)):
+            sample = dataset[idx]
+            if sample is None:
+                continue
+            data_dict = dict_collate([sample])
+            features = extract_router_features(
+                data_dict, feature_set=feature_set, flatten=flatten
+            ).to(device)
+            if normalization_stats is not None:
+                mean, std = normalization_stats
+                std_safe = torch.where(std.abs() < 1e-6, torch.ones_like(std), std)
+                features = (features - mean) / std_safe
+            pred_cluster = int(router_model.predict(features)[0].item())
+            assignments[pred_cluster].append(idx)
+            true_cluster = predict_cluster_from_dict(
+                data_dict,
+                cluster_model=cluster_model,
+                normalize_direction=cfg.DATA.NORMALIZED,
+            )
+            if true_cluster is not None:
+                total += 1
+                if true_cluster == pred_cluster:
+                    correct += 1
+            if idx < 5:
+                print(
+                    "[DEBUG] Sample {} | pred_cluster={} | true_cluster={}".format(
+                        idx, pred_cluster, true_cluster
+                    )
+                )
+
+    accuracy = correct / total if total else 0.0
+    print(
+        "[DEBUG] Completed router assignment pass | total_evaluated={} | correct={} | accuracy={:.4f}".format(
+            total, correct, accuracy
+        )
+    )
+    print(
+        "[DEBUG] Routed sample counts by cluster: {}".format(
+            {cid: len(idxs) for cid, idxs in assignments.items()}
+        )
+    )
+    return assignments, accuracy, dataset
+
+
+def evaluate_with_router(args, cfg):
+    if args.router_ckpt is None:
+        raise ValueError("--router_ckpt must be provided for router-based evaluation")
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    router_model, checkpoint = ClusterRouter.from_checkpoint(args.router_ckpt, device=device)
+    router_model.eval()
+    print(
+        "[DEBUG] Loaded router checkpoint {} | mode={}".format(
+            args.router_ckpt, "eval" if not router_model.training else "train"
+        )
+    )
+    metadata = checkpoint.get("metadata", {})
+    feature_set = metadata.get("feature_set", cfg.ROUTER.FEATURE_SET)
+    flatten = metadata.get("flatten", cfg.ROUTER.FLATTEN)
+    norm_stats: Optional[Tuple[torch.Tensor, torch.Tensor]] = None
+    feature_mean = metadata.get("feature_mean")
+    feature_std = metadata.get("feature_std")
+    if feature_mean is not None and feature_std is not None:
+        mean_tensor = torch.as_tensor(feature_mean, dtype=torch.float32, device=device)
+        std_tensor = torch.as_tensor(feature_std, dtype=torch.float32, device=device)
+        norm_stats = (mean_tensor, std_tensor)
+    else:
+        try:
+            print("[DEBUG] Router checkpoint missing normalization stats; recomputing from training split")
+            stats_dataset = ClusterRoutingDataset(
+                cfg,
+                split="train",
+                feature_set=feature_set,
+                flatten=flatten,
+                cluster_model_path=cluster_model_path(cfg),
+                aug_scene=args.aug_scene,
+            )
+            norm_stats = (
+                stats_dataset.feature_mean.to(device),
+                stats_dataset.feature_std.to(device),
+            )
+        except Exception as exc:  # pragma: no cover - diagnostic path
+            print(
+                f"Warning: unable to recompute router normalization statistics ({exc}). Proceeding without normalization."
+            )
+
+    assignments, accuracy, dataset = _evaluate_router_assignments(
+        args, cfg, router_model, feature_set, flatten, normalization_stats=norm_stats
+    )
+
+    save_root = (
+        Path(args.cluster_ckpt_dir)
+        if args.cluster_ckpt_dir
+        else Path(cfg.FINETUNE.SAVE_DIR) / cfg.DATA.DATASET_NAME
+    )
+
+    aggregated_gt = []
+    aggregated_pred = []
+    per_cluster_metrics = {}
+
+    for cluster_id, indices in assignments.items():
+        if not indices:
+            continue
+        ckpt_path = save_root / f"{format_cluster_name(cluster_id)}.ckpt"
+        if not ckpt_path.exists():
+            print(
+                f"Warning: cluster checkpoint not found for cluster {cluster_id} at {ckpt_path}. Skipping."
+            )
+            continue
+
+        model = Build_Model(cfg)
+        model.load(ckpt_path, strict=False)
+        model.set_active_cluster(cluster_id)
+
+        subset = Subset(dataset, indices)
+        loader = DataLoader(
+            subset,
+            batch_size=cfg.DATA.BATCH_SIZE,
+            shuffle=False,
+            num_workers=cfg.DATA.NUM_WORKERS,
+            collate_fn=dict_collate,
+            drop_last=False,
+            pin_memory=True,
+        )
+
+        metrics = Build_Metrics(cfg)
+        obs, gt, pred = run_inference(cfg, model, metrics, loader)
+        aggregated_gt.append(gt)
+        aggregated_pred.append(pred)
+
+        minade, minfde = evaluate_metrics(args, gt, pred)
+        per_cluster_metrics[cluster_id] = {"minADE": minade, "minFDE": minfde}
+
+    if not aggregated_gt:
+        raise RuntimeError("Router did not route any samples to available clusters")
+
+    gt_all = np.concatenate(aggregated_gt, axis=0)
+    pred_all = np.concatenate(aggregated_pred, axis=0)
+    minade, minfde = evaluate_metrics(args, gt_all, pred_all)
+
+    print(f"Router accuracy on clustering labels: {accuracy:.4f}")
+    for cluster_id, metrics_dict in sorted(per_cluster_metrics.items()):
+        print(
+            f"Cluster {cluster_id}: minADE={metrics_dict['minADE']:.4f}, minFDE={metrics_dict['minFDE']:.4f}"
+        )
+    print(f"Aggregated test metrics -> minADE: {minade:.4f}, minFDE: {minfde:.4f}")
+
 
 def test(args, cfg):
+    if args.router_ckpt:
+        evaluate_with_router(args, cfg)
+        return
     model = Build_Model(cfg)
-    model.load(Path(args.load_model))
-    data_loader = unified_loader(cfg, rand=False, split="test")
+    load_path = Path(args.load_cluster_ckpt) if args.load_cluster_ckpt else Path(args.load_model)
+    model.load(load_path, strict=False)
+    if args.cluster_id is not None:
+        model.set_active_cluster(args.cluster_id)
+        data_loader = unified_loader(
+            cfg,
+            rand=False,
+            split="test",
+            cluster_id=args.cluster_id,
+            cluster_model_path=cluster_model_path(cfg),
+        )
+    else:
+        data_loader = unified_loader(cfg, rand=False, split="test")
     metrics = Build_Metrics(cfg)
 
     for i_trial in range(3):
@@ -190,7 +417,8 @@ def test(args, cfg):
 if __name__ == "__main__":
     args = parse_args()
     scene = args.scene
-    args.load_model = f"./checkpoint/{scene}.ckpt"
+    if args.load_cluster_ckpt is None:
+        args.load_model = f"./checkpoint/{scene}.ckpt"
     args.config_file = f"./config/{scene}.yml"
     cfg = load_config(args)
     cfg.freeze()
